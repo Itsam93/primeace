@@ -1,0 +1,21 @@
+{
+  "name": "primeace",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "primeace-frontend",
+    "primeace-backend",
+    "primeace-shared"
+  ],
+  "scripts": {
+    "dev": "concurrently -n FRONTEND,BACKEND -c blue,green \"npm run dev --workspace=primeace-frontend\" \"npm run dev --workspace=primeace-backend\"",
+    "build": "npm run build --workspace=@primeace/shared && npm run build --workspace=primeace-backend && npm run build --workspace=primeace-frontend",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.5",
+    "concurrently": "^9.2.0",
+    "tailwindcss": "^4.3.5"
+  }
+}
