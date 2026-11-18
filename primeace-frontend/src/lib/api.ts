@@ -51,11 +51,15 @@ async function requestApiResponse<T, M = unknown>(
 
   headers.set("Accept", "application/json");
 
+  const normalizedPath = path.startsWith("/")
+    ? path
+    : `/${path}`;
+
   const requiresCsrf = ![
     "GET",
     "HEAD",
     "OPTIONS"
-  ].includes(method) && path !== "/auth/login";
+  ].includes(method) && normalizedPath !== "/auth/login";
 
   if (requiresCsrf && !headers.has("x-csrf-token")) {
     const csrfToken = getCsrfToken();
@@ -66,7 +70,7 @@ async function requestApiResponse<T, M = unknown>(
   }
 
   const response = await fetch(
-    `${API_BASE_URL}/api${path}`,
+    `${API_BASE_URL}/api${normalizedPath}`,
     {
       ...options,
       method,
