@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Menu, X } from "lucide-react";
 
 export interface INavbarItem {
   label: string;
@@ -110,6 +109,7 @@ function Navbar({
       }`}
     >
       <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 lg:px-8">
+        {/* Brand */}
         <Link
           to={homeHref}
           onClick={closeMenu}
@@ -166,20 +166,47 @@ function Navbar({
         <button
           type="button"
           onClick={() => setIsMenuOpen((previous) => !previous)}
-          aria-label={isMenuOpen ? "Close navigation menu" : "Open navigation menu"}
+          aria-label={
+            isMenuOpen
+              ? "Close navigation menu"
+              : "Open navigation menu"
+          }
           aria-expanded={isMenuOpen}
           aria-controls="mobile-navigation"
-          className={`relative flex h-11 w-11 items-center justify-center rounded-lg transition-colors md:hidden ${
+          className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-lg transition-colors md:hidden ${
             isScrolled
               ? "text-[#07152F] hover:bg-slate-100"
               : "text-white hover:bg-white/10"
           }`}
         >
-          {isMenuOpen ? (
-            <X size={25} strokeWidth={2} />
-          ) : (
-            <Menu size={25} strokeWidth={2} />
-          )}
+          <span className="relative flex h-5 w-6 items-center justify-center">
+            {/* Top bar */}
+            <span
+              className={`absolute h-0.5 w-6 rounded-full bg-current transition-all duration-300 ease-in-out ${
+                isMenuOpen
+                  ? "translate-y-0 rotate-45"
+                  : "-translate-y-2 rotate-0"
+              }`}
+            />
+
+            {/* Middle bar */}
+            <span
+              className={`absolute h-0.5 w-6 rounded-full bg-current transition-all duration-200 ease-in-out ${
+                isMenuOpen
+                  ? "scale-x-0 opacity-0"
+                  : "scale-x-100 opacity-100"
+              }`}
+            />
+
+            {/* Bottom bar */}
+            <span
+              className={`absolute h-0.5 w-6 rounded-full bg-current transition-all duration-300 ease-in-out ${
+                isMenuOpen
+                  ? "translate-y-0 -rotate-45"
+                  : "translate-y-2 rotate-0"
+              }`}
+            />
+          </span>
         </button>
       </div>
 
