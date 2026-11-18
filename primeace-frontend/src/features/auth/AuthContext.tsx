@@ -7,7 +7,11 @@ import {
   type ReactNode
 } from "react";
 
-import { apiRequest } from "../../lib/api.js";
+import {
+  apiRequest,
+  ApiError,
+  setCsrfToken
+} from "../../lib/api.js";
 
 import type {
   IAdmin,
@@ -18,8 +22,6 @@ import type {
   AuthStatus
 } from "./auth.type.js";
 
-import { ApiError } from "../../lib/api.js";
-
 const AuthContext = createContext<IAuthContext | undefined>(
   undefined
 );
@@ -27,6 +29,38 @@ const AuthContext = createContext<IAuthContext | undefined>(
 interface AuthProviderProps {
   children: ReactNode;
 }
+
+interface ICsrfResponse {
+  csrfToken: string;
+}
+
+let csrfRefreshPromise: Promise<string> | null = null;
+
+
+function refreshCsrfToken(): Promise<string> {
+  if (!csrfRefreshPromise) {
+    const request = apiRequest<ICsrfResponse>(
+      "/auth/csrf",
+      { method: "POST" }
+    ).then((result) => {
+      setCsrfToken(result.csrfToken);
+      return result.csrfToken;
+    });
+
+    let sharedRequest: Promise<string>;
+
+    sharedRequest = request.finally(() => {
+      if (csrfRefreshPromise === sharedRequest) {
+        csrfRefreshPromise = null;
+      }
+    });
+
+    csrfRefreshPromise = sharedRequest;
+  }
+
+  return csrfRefreshPromise;
+}
+
 
 export function AuthProvider({ children }: AuthProviderProps) {
   const [admin, setAdmin] = useState<IAdmin | null>(null);
@@ -40,12 +74,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
         "/auth/me"
       );
 
+      await refreshCsrfToken();
+
       setAdmin(result.admin);
       setStatus("authenticated");
     } catch (error) {
       setAdmin(null);
 
       if (error instanceof ApiError && error.status === 401) {
+        setCsrfToken(null);
         setStatus("unauthenticated");
         return;
       }
@@ -57,6 +94,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const login = useCallback(
     async (credentials: ILoginCredentials) => {
+      setCsrfToken(null);
+
       const result = await apiRequest<ILoginResponse>(
         "/auth/login",
         {
@@ -65,6 +104,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         }
       );
 
+      setCsrfToken(result.csrfToken);
       setAdmin(result.admin);
       setStatus("authenticated");
     },
@@ -76,6 +116,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       method: "POST"
     });
 
+    setCsrfToken(null);
     setAdmin(null);
     setStatus("unauthenticated");
   }, []);
@@ -89,6 +130,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
           "/auth/me"
         );
 
+        await refreshCsrfToken();
+
         if (mounted) {
           setAdmin(result.admin);
           setStatus("authenticated");
@@ -99,6 +142,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         }
 
         setAdmin(null);
+        setCsrfToken(null);
 
         if (error instanceof ApiError && error.status === 401) {
           setStatus("unauthenticated");
