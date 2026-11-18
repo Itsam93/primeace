@@ -24,7 +24,7 @@ function FloatingWhatsApp() {
       rel="noopener noreferrer"
       aria-label="Chat with PrimeAce on WhatsApp"
       title="Chat with us on WhatsApp"
-      className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-[#25D366] text-white shadow-lg shadow-black/20 transition-all duration-300 hover:-translate-y-1 hover:bg-[#20BD5A] hover:shadow-xl focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#25D366] sm:bottom-8 sm:right-8 sm:h-16 sm:w-16"
+      className="fixed bottom-6 right-6 z-60 flex h-14 w-14 items-center justify-center rounded-full bg-[#25D366] text-white shadow-lg shadow-black/20 transition-all duration-300 hover:-translate-y-1 hover:bg-[#20BD5A] hover:shadow-xl focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#25D366] sm:bottom-8 sm:right-8 sm:h-16 sm:w-16"
     >
       <svg
         xmlns="http://www.w3.org/2000/svg"
