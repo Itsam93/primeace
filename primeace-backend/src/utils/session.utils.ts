@@ -32,7 +32,7 @@ function getCookieSecurityOptions(): Pick<
 
   return {
     secure: isProduction,
-    sameSite: "lax",
+    sameSite: isProduction ? "none" : "lax",
     path: "/"
   };
 }
