@@ -3,6 +3,8 @@ import type { RequestHandler } from "express";
 import {
   ADMIN_SESSION_COOKIE,
   ADMIN_CSRF_COOKIE,
+  generateCsrfToken,
+  hashCsrfToken,
   getAdminSessionCookieOptions,
   getAdminCsrfCookieOptions,
   getExpiredCookieOptions,
@@ -15,7 +17,10 @@ import {
   logoutAdmin
 } from "./auth.service.js";
 
+import { AdminSession } from "./adminSession.js";
+import type { AdminSessionDocument } from "./adminSession.js";
 import type { LoginInput } from "./auth.validation.js";
+
 import { ApiError } from "../../shared/errors/ApiError.js";
 
 interface AuthenticatedAdminRecord {
@@ -24,7 +29,6 @@ interface AuthenticatedAdminRecord {
   email: string;
   role: string;
 }
-
 
 export const login: RequestHandler = async (request, response) => {
   const validated = (
@@ -55,6 +59,53 @@ export const login: RequestHandler = async (request, response) => {
       admin: result.admin,
       csrfToken: result.csrfToken,
       expiresAt: result.expiresAt
+    }
+  });
+};
+
+
+export const refreshCsrfToken: RequestHandler = async (
+  _request,
+  response
+) => {
+  const session = response.locals.adminSession as
+    | AdminSessionDocument
+    | undefined;
+
+  if (!session) {
+    throw new ApiError(401, "Authentication is required.");
+  }
+
+  const csrfToken = generateCsrfToken();
+
+  const updateResult = await AdminSession.updateOne(
+    {
+      tokenHash: session.tokenHash,
+      revokedAt: null,
+      expiresAt: { $gt: new Date() }
+    },
+    {
+      $set: {
+        csrfTokenHash: hashCsrfToken(csrfToken)
+      }
+    }
+  );
+
+  if (updateResult.matchedCount === 0) {
+    throw new ApiError(401, "Your session is invalid or has expired.");
+  }
+
+  response.cookie(
+    ADMIN_CSRF_COOKIE,
+    csrfToken,
+    getAdminCsrfCookieOptions()
+  );
+
+  response.status(200).json({
+    success: true,
+    message: "CSRF token refreshed successfully.",
+    data: {
+      csrfToken
     }
   });
 };

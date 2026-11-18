@@ -8,7 +8,8 @@ import verifyCsrfToken from "../../middleware/verifyCsrfToken.js";
 import {
   getCurrentAdmin,
   login,
-  logout
+  logout,
+  refreshCsrfToken
 } from "./auth.controller.js";
 
 import { loginSchema } from "./auth.validation.js";
@@ -20,6 +21,12 @@ authRouter.post(
   loginRateLimiter,
   validateRequest(loginSchema),
   login
+);
+
+authRouter.post(
+  "/csrf",
+  authenticate,
+  refreshCsrfToken
 );
 
 authRouter.post(

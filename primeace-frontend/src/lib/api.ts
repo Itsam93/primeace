@@ -24,18 +24,14 @@ const API_BASE_URL = (import.meta.env.VITE_API_URL ?? "")
   .replace(/\/+$/, "")
   .replace(/\/api$/, "");
 
+let csrfToken: string | null = null;
+
+export function setCsrfToken(token: string | null): void {
+  csrfToken = token;
+}
+
 function getCsrfToken(): string | null {
-  const cookie = document.cookie
-    .split("; ")
-    .find((item) => item.startsWith("primeace_admin_csrf="));
-
-  if (!cookie) {
-    return null;
-  }
-
-  return decodeURIComponent(
-    cookie.substring("primeace_admin_csrf=".length)
-  );
+  return csrfToken;
 }
 
 async function requestApiResponse<T, M = unknown>(
@@ -55,17 +51,16 @@ async function requestApiResponse<T, M = unknown>(
     ? path
     : `/${path}`;
 
-  const requiresCsrf = ![
-    "GET",
-    "HEAD",
-    "OPTIONS"
-  ].includes(method) && normalizedPath !== "/auth/login";
+  const requiresCsrf =
+    !["GET", "HEAD", "OPTIONS"].includes(method) &&
+    normalizedPath !== "/auth/login" &&
+    normalizedPath !== "/auth/csrf";
 
   if (requiresCsrf && !headers.has("x-csrf-token")) {
-    const csrfToken = getCsrfToken();
+    const token = getCsrfToken();
 
-    if (csrfToken) {
-      headers.set("x-csrf-token", csrfToken);
+    if (token) {
+      headers.set("x-csrf-token", token);
     }
   }
 
