@@ -1,5 +1,4 @@
 import { startSession, Types } from "mongoose";
-
 import type { ClientSession } from "mongoose";
 
 import {
@@ -9,7 +8,6 @@ import {
 } from "@primeace/shared";
 
 import { ApiError } from "../../shared/errors/ApiError.js";
-
 import { generateProjectReference } from "../../utils/generateProjectReference.js";
 
 import { AuditLog } from "../audit/Auditlog.js";
@@ -20,19 +18,23 @@ import { Quotation } from "../quotations/Quotation.js";
 import { ServiceRequest } from "../service-requests/ServiceRequest.js";
 
 import { Project } from "./Project.js";
-
 import type { ProjectRecord } from "./Project.js";
+import { ProjectCategory } from "./ProjectCategory.js";
 
 import type {
   CreateHistoricalProjectInput,
   ListProjectsQuery,
+  UpdateProjectFeaturedInput,
+  UpdateProjectInput,
   UpdateProjectStatusInput
 } from "./project.validation.js";
 
 import type {
   ProjectDetail,
   ProjectListItem,
-  ProjectListResponse
+  ProjectListResponse,
+  PublicProject,
+  PublicProjectListResponse
 } from "./project.types.js";
 
 interface ProjectAuditContext {
@@ -45,6 +47,7 @@ interface ProjectListFilter {
   isDeleted: false;
   source?: ProjectSource;
   status?: ProjectStatus;
+  categoryId?: Types.ObjectId;
   clientId?: Types.ObjectId;
   serviceRequestId?: Types.ObjectId;
   quotationId?: Types.ObjectId;
@@ -60,8 +63,32 @@ interface ProjectListFilter {
   >;
 }
 
+interface ProjectCategorySummaryRecord {
+  _id: Types.ObjectId;
+  name: string;
+  slug: string;
+}
+
+interface ProjectVideoClipRecord {
+  url: string;
+  publicId: string;
+  thumbnailUrl: string;
+  alt: string;
+}
+
 type ProjectWithId = ProjectRecord & {
   _id: Types.ObjectId;
+};
+
+type ProjectWithPopulatedCategory = Omit<
+  ProjectWithId,
+  "categoryId" | "videoClip"
+> & {
+  categoryId:
+    | Types.ObjectId
+    | ProjectCategorySummaryRecord
+    | null;
+  videoClip?: ProjectVideoClipRecord | null;
 };
 
 function validateObjectId(
@@ -79,9 +106,44 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function mapProjectCategory(
+  categoryId: ProjectWithPopulatedCategory["categoryId"]
+) {
+  if (!categoryId || categoryId instanceof Types.ObjectId) {
+    return null;
+  }
+
+  return {
+    id: categoryId._id.toString(),
+    name: categoryId.name,
+    slug: categoryId.slug
+  };
+}
+
+function mapProjectVideoClip(
+  videoClip: ProjectVideoClipRecord | null | undefined
+) {
+  if (!videoClip?.url) {
+    return null;
+  }
+
+  return {
+    url: videoClip.url,
+    thumbnailUrl: videoClip.thumbnailUrl,
+    alt: videoClip.alt
+  };
+}
+
 function mapProjectListItem(
-  project: ProjectWithId
+  project: ProjectWithPopulatedCategory
 ): ProjectListItem {
+  const coverImage = project.coverImage?.url
+    ? {
+        url: project.coverImage.url,
+        alt: project.coverImage.alt || project.title
+      }
+    : null;
+
   return {
     id: project._id.toString(),
     projectReference: project.projectReference,
@@ -93,28 +155,89 @@ function mapProjectListItem(
     },
     serviceNames: project.serviceNames,
     title: project.title,
+    description: project.description,
+    categoryId:
+      project.categoryId instanceof Types.ObjectId
+        ? project.categoryId.toString()
+        : project.categoryId?._id.toString() ?? null,
+    category: mapProjectCategory(project.categoryId),
     contractAmountKobo: project.contractAmountKobo,
     status: project.status,
     startDate: project.startDate?.toISOString() ?? null,
     expectedCompletionDate:
       project.expectedCompletionDate?.toISOString() ?? null,
+    completedAt: project.completedAt?.toISOString() ?? null,
+    coverImage,
+    videoClip: mapProjectVideoClip(project.videoClip),
+    isFeatured: project.isFeatured ?? false,
     createdAt: project.createdAt.toISOString(),
     updatedAt: project.updatedAt.toISOString()
   };
 }
 
 function mapProjectDetail(
-  project: ProjectWithId
+  project: ProjectWithPopulatedCategory
 ): ProjectDetail {
   return {
     ...mapProjectListItem(project),
     clientId: project.clientId.toString(),
     serviceRequestId: project.serviceRequestId?.toString() ?? null,
     quotationId: project.quotationId?.toString() ?? null,
-    contractId: project.contractId?.toString() ?? null,
-    description: project.description,
-    completedAt: project.completedAt?.toISOString() ?? null
+    contractId: project.contractId?.toString() ?? null
   };
+}
+
+/**
+ * Map a project to the public response format.
+ *
+ * Excludes client information, financial details,
+ * internal references and administrative fields.
+ */
+function mapPublicProject(
+  project: ProjectWithPopulatedCategory
+): PublicProject {
+  return {
+    id: project._id.toString(),
+    title: project.title,
+    description: project.description,
+    serviceNames: project.serviceNames,
+    source: project.source ?? ProjectSource.CONTRACT,
+    category: mapProjectCategory(project.categoryId),
+    completedAt: project.completedAt?.toISOString() ?? null,
+    coverImage: project.coverImage?.url
+      ? {
+          url: project.coverImage.url,
+          alt: project.coverImage.alt || project.title
+        }
+      : null,
+    videoClip: mapProjectVideoClip(project.videoClip)
+  };
+}
+
+async function getActiveProjectCategory(
+  categoryId: Types.ObjectId,
+  session?: ClientSession
+) {
+  let query = ProjectCategory.findOne({
+    _id: categoryId,
+    isActive: true,
+    isDeleted: false
+  });
+
+  if (session) {
+    query = query.session(session);
+  }
+
+  const category = await query;
+
+  if (!category) {
+    throw new ApiError(
+      404,
+      "The selected project category does not exist or is inactive."
+    );
+  }
+
+  return category;
 }
 
 async function validateAcceptedContract(
@@ -173,9 +296,7 @@ async function getContractRelatedRecords(
     throw new ApiError(404, "Associated quotation not found.");
   }
 
-  if (
-    quotation.clientId.toString() !== contract.clientId.toString()
-  ) {
+  if (quotation.clientId.toString() !== contract.clientId.toString()) {
     throw new ApiError(
       409,
       "Contract and quotation client references do not match."
@@ -239,15 +360,6 @@ async function writeProjectAuditLog(
   );
 }
 
-/**
- * Creates a historical project manually.
- *
- * Historical projects do not require a service request,
- * quotation or contract.
- *
- * The project and its audit record are committed together
- * in a MongoDB transaction.
- */
 export async function createHistoricalProject(
   input: CreateHistoricalProjectInput,
   context: ProjectAuditContext
@@ -259,13 +371,13 @@ export async function createHistoricalProject(
     );
   }
 
-  const clientId = validateObjectId(
-    input.clientId,
-    "client ID"
+  const clientId = validateObjectId(input.clientId, "client ID");
+  const categoryId = validateObjectId(
+    input.categoryId,
+    "project category ID"
   );
 
   const adminId = context.actorId;
-
   const session = await startSession();
 
   try {
@@ -284,6 +396,11 @@ export async function createHistoricalProject(
         );
       }
 
+      const category = await getActiveProjectCategory(
+        categoryId,
+        session
+      );
+
       const clientSnapshot = {
         fullName: client.fullName,
         email: client.email ?? null,
@@ -295,6 +412,7 @@ export async function createHistoricalProject(
         source: ProjectSource.HISTORICAL,
         clientId: client._id,
         clientSnapshot,
+        categoryId: category._id,
         serviceRequestId: null,
         quotationId: null,
         contractId: null,
@@ -309,7 +427,8 @@ export async function createHistoricalProject(
         expectedCompletionDate: input.expectedCompletionDate
           ? new Date(input.expectedCompletionDate)
           : null,
-        completedAt: new Date(input.completedAt)
+        completedAt: new Date(input.completedAt),
+        isFeatured: false
       });
 
       await project.save({ session });
@@ -328,6 +447,8 @@ export async function createHistoricalProject(
                 projectReference: project.projectReference,
                 source: ProjectSource.HISTORICAL,
                 clientId: client._id.toString(),
+                categoryId: category._id.toString(),
+                categoryName: category.name,
                 clientSnapshot,
                 serviceNames: input.serviceNames,
                 title: input.title,
@@ -336,7 +457,8 @@ export async function createHistoricalProject(
                 status: input.status,
                 startDate: input.startDate,
                 expectedCompletionDate: input.expectedCompletionDate,
-                completedAt: input.completedAt
+                completedAt: input.completedAt,
+                isFeatured: false
               }
             },
             metadata: {
@@ -349,9 +471,11 @@ export async function createHistoricalProject(
         { session }
       );
 
-      createdProject = mapProjectDetail(
-        project as unknown as ProjectWithId
-      );
+      createdProject = mapProjectDetail({
+        ...project.toObject(),
+        _id: project._id,
+        categoryId: category.toObject()
+      } as ProjectWithPopulatedCategory);
     });
 
     if (!createdProject) {
@@ -367,23 +491,12 @@ export async function createHistoricalProject(
   }
 }
 
-/**
- * Creates a project for the first accepted contract version,
- * or updates the existing project when a subsequent revision
- * is accepted.
- *
- * This function must be called within an existing MongoDB
- * transaction. It does not create, commit or end a session.
- */
 export async function createOrUpdateProjectFromAcceptedContract(
   contractId: Types.ObjectId,
   session: ClientSession,
   context: ProjectAuditContext = {}
 ) {
-  const contract = await validateAcceptedContract(
-    contractId,
-    session
-  );
+  const contract = await validateAcceptedContract(contractId, session);
 
   const {
     quotation,
@@ -424,6 +537,7 @@ export async function createOrUpdateProjectFromAcceptedContract(
       source: ProjectSource.CONTRACT,
       clientId: contract.clientId,
       clientSnapshot,
+      categoryId: null,
       serviceRequestId: serviceRequest._id,
       quotationId: quotation._id,
       contractId: contract._id,
@@ -433,8 +547,8 @@ export async function createOrUpdateProjectFromAcceptedContract(
       contractAmountKobo: contract.contractAmountKobo,
       status: ProjectStatus.NOT_STARTED,
       startDate: contract.startDate ?? null,
-      expectedCompletionDate:
-        contract.expectedCompletionDate ?? null
+      expectedCompletionDate: contract.expectedCompletionDate ?? null,
+      isFeatured: false
     });
   } else {
     if (
@@ -486,20 +600,17 @@ export async function createOrUpdateProjectFromAcceptedContract(
   return project;
 }
 
-/**
- * Retrieve a project by its database ID.
- */
 export async function getProjectById(
   projectId: string
 ): Promise<ProjectDetail> {
-  const id = validateObjectId(
-    projectId,
-    "project ID"
-  );
+  const id = validateObjectId(projectId, "project ID");
 
   const project = await Project.findOne({
     _id: id,
     isDeleted: false
+  }).populate({
+    path: "categoryId",
+    select: "name slug"
   });
 
   if (!project) {
@@ -507,31 +618,22 @@ export async function getProjectById(
   }
 
   return mapProjectDetail(
-    project as unknown as ProjectWithId
+    project.toObject() as ProjectWithPopulatedCategory
   );
 }
 
 /**
- * Update a project's status.
+ * Update editable information on an existing project.
  *
- * A completed project receives a completion timestamp.
- * Moving it away from COMPLETED clears that timestamp.
- *
- * The project update and audit record are committed
- * together in a MongoDB transaction.
+ * Works for both historical and contract-generated projects.
+ * Existing media and contract-related references are preserved.
  */
-export async function updateProjectStatus(
+export async function updateProject(
   projectId: string,
-  input: UpdateProjectStatusInput,
+  input: UpdateProjectInput,
   context: ProjectAuditContext = {}
 ): Promise<ProjectDetail> {
-  const id = validateObjectId(
-    projectId,
-    "project ID"
-  );
-
-  const newStatus = input.status;
-
+  const id = validateObjectId(projectId, "project ID");
   const session = await startSession();
 
   try {
@@ -547,13 +649,197 @@ export async function updateProjectStatus(
         throw new ApiError(404, "Project not found.");
       }
 
+      const previousValues = {
+        title: project.title,
+        description: project.description,
+        categoryId: project.categoryId?.toString() ?? null,
+        serviceNames: [...project.serviceNames],
+        contractAmountKobo: project.contractAmountKobo,
+        startDate: project.startDate?.toISOString() ?? null,
+        expectedCompletionDate:
+          project.expectedCompletionDate?.toISOString() ?? null
+      };
+
+      if (input.title !== undefined) {
+        project.title = input.title;
+      }
+
+      if (input.description !== undefined) {
+        project.description = input.description;
+      }
+
+      if (input.categoryId !== undefined) {
+        const categoryId = validateObjectId(
+          input.categoryId,
+          "project category ID"
+        );
+
+        const category = await getActiveProjectCategory(
+          categoryId,
+          session
+        );
+
+        project.categoryId = category._id;
+      }
+
+      if (input.serviceNames !== undefined) {
+        project.serviceNames = input.serviceNames;
+      }
+
+      if (input.contractAmountKobo !== undefined) {
+        project.contractAmountKobo = input.contractAmountKobo;
+      }
+
+      if (input.startDate !== undefined) {
+        project.startDate = input.startDate
+          ? new Date(input.startDate)
+          : null;
+      }
+
+      if (input.expectedCompletionDate !== undefined) {
+        project.expectedCompletionDate =
+          input.expectedCompletionDate
+            ? new Date(input.expectedCompletionDate)
+            : null;
+      }
+
+      if (
+        project.startDate &&
+        project.expectedCompletionDate &&
+        project.expectedCompletionDate < project.startDate
+      ) {
+        throw new ApiError(
+          400,
+          "The expected completion date cannot be earlier than the start date."
+        );
+      }
+
+      await project.save({ session });
+
+      const currentValues = {
+        title: project.title,
+        description: project.description,
+        categoryId: project.categoryId?.toString() ?? null,
+        serviceNames: [...project.serviceNames],
+        contractAmountKobo: project.contractAmountKobo,
+        startDate: project.startDate?.toISOString() ?? null,
+        expectedCompletionDate:
+          project.expectedCompletionDate?.toISOString() ?? null
+      };
+
+      const changes: Record<
+        string,
+        { from: unknown; to: unknown }
+      > = {};
+
+      for (const key of Object.keys(previousValues) as Array<
+        keyof typeof previousValues
+      >) {
+        const previous = previousValues[key];
+        const current = currentValues[key];
+
+        const hasChanged =
+          Array.isArray(previous) && Array.isArray(current)
+            ? JSON.stringify(previous) !== JSON.stringify(current)
+            : previous !== current;
+
+        if (hasChanged) {
+          changes[key] = {
+            from: previous,
+            to: current
+          };
+        }
+      }
+
+      if (Object.keys(changes).length > 0) {
+        await AuditLog.create(
+          [
+            {
+              actorId: context.actorId ?? null,
+              action: "project.updated",
+              resourceType: "project",
+              resourceId: project._id,
+              description:
+                `Project "${project.title}" was updated.`,
+              changes,
+              metadata: {
+                projectReference: project.projectReference,
+                source: project.source
+              },
+              ipAddress: context.ipAddress ?? null,
+              userAgent: context.userAgent ?? null
+            }
+          ],
+          { session }
+        );
+      }
+
+      const populatedProject = await Project.findOne({
+        _id: project._id,
+        isDeleted: false
+      })
+        .populate({
+          path: "categoryId",
+          select: "name slug"
+        })
+        .session(session);
+
+      if (!populatedProject) {
+        throw new ApiError(404, "Project not found.");
+      }
+
+      updatedProject = mapProjectDetail(
+        populatedProject.toObject() as ProjectWithPopulatedCategory
+      );
+    });
+
+    if (!updatedProject) {
+      throw new ApiError(
+        500,
+        "The project update could not be completed."
+      );
+    }
+
+    return updatedProject;
+  } finally {
+    await session.endSession();
+  }
+}
+
+export async function updateProjectStatus(
+  projectId: string,
+  input: UpdateProjectStatusInput,
+  context: ProjectAuditContext = {}
+): Promise<ProjectDetail> {
+  const id = validateObjectId(projectId, "project ID");
+  const newStatus = input.status;
+  const session = await startSession();
+
+  try {
+    let updatedProject: ProjectDetail | null = null;
+
+    await session.withTransaction(async () => {
+      const project = await Project.findOne({
+        _id: id,
+        isDeleted: false
+      })
+        .populate({
+          path: "categoryId",
+          select: "name slug"
+        })
+        .session(session);
+
+      if (!project) {
+        throw new ApiError(404, "Project not found.");
+      }
+
       const previousStatus = project.status;
+      const previousFeaturedStatus = project.isFeatured ?? false;
 
       if (previousStatus === newStatus) {
         updatedProject = mapProjectDetail(
-          project as unknown as ProjectWithId
+          project.toObject() as ProjectWithPopulatedCategory
         );
-
         return;
       }
 
@@ -563,6 +849,7 @@ export async function updateProjectStatus(
         project.completedAt = new Date();
       } else if (previousStatus === ProjectStatus.COMPLETED) {
         project.completedAt = null;
+        project.isFeatured = false;
       }
 
       await project.save({ session });
@@ -580,7 +867,15 @@ export async function updateProjectStatus(
               status: {
                 from: previousStatus,
                 to: newStatus
-              }
+              },
+              ...(previousFeaturedStatus !== (project.isFeatured ?? false)
+                ? {
+                    isFeatured: {
+                      from: previousFeaturedStatus,
+                      to: project.isFeatured ?? false
+                    }
+                  }
+                : {})
             },
             metadata: {
               projectReference: project.projectReference
@@ -593,7 +888,7 @@ export async function updateProjectStatus(
       );
 
       updatedProject = mapProjectDetail(
-        project as unknown as ProjectWithId
+        project.toObject() as ProjectWithPopulatedCategory
       );
     });
 
@@ -610,16 +905,128 @@ export async function updateProjectStatus(
   }
 }
 
-/**
- * Retrieve projects with pagination, search, filtering and sorting.
- *
- * Search fields:
- * - Project reference
- * - Project title
- * - Client name
- *
- * Date filtering applies to project creation dates.
- */
+export async function updateProjectFeatured(
+  projectId: string,
+  input: UpdateProjectFeaturedInput,
+  context: ProjectAuditContext = {}
+): Promise<ProjectDetail> {
+  const id = validateObjectId(projectId, "project ID");
+  const session = await startSession();
+
+  try {
+    let updatedProject: ProjectDetail | null = null;
+
+    await session.withTransaction(async () => {
+      const project = await Project.findOne({
+        _id: id,
+        isDeleted: false
+      }).session(session);
+
+      if (!project) {
+        throw new ApiError(404, "Project not found.");
+      }
+
+      const previousFeaturedStatus = project.isFeatured ?? false;
+      const newFeaturedStatus = input.isFeatured;
+
+      if (
+        newFeaturedStatus &&
+        project.status !== ProjectStatus.COMPLETED
+      ) {
+        throw new ApiError(
+          409,
+          "Only completed projects can be featured."
+        );
+      }
+
+      if (newFeaturedStatus) {
+        if (!project.categoryId) {
+          throw new ApiError(
+            409,
+            "Assign an active project category before featuring this project."
+          );
+        }
+
+        await getActiveProjectCategory(project.categoryId, session);
+      }
+
+      if (previousFeaturedStatus === newFeaturedStatus) {
+        const populatedProject = await Project.findById(project._id)
+          .populate({
+            path: "categoryId",
+            select: "name slug"
+          })
+          .session(session);
+
+        if (!populatedProject) {
+          throw new ApiError(404, "Project not found.");
+        }
+
+        updatedProject = mapProjectDetail(
+          populatedProject.toObject() as ProjectWithPopulatedCategory
+        );
+        return;
+      }
+
+      project.isFeatured = newFeaturedStatus;
+
+      await project.save({ session });
+
+      await AuditLog.create(
+        [
+          {
+            actorId: context.actorId ?? null,
+            action: "project.featured_status_updated",
+            resourceType: "project",
+            resourceId: project._id,
+            description: newFeaturedStatus
+              ? `Project "${project.title}" was added to the public showcase.`
+              : `Project "${project.title}" was removed from the public showcase.`,
+            changes: {
+              isFeatured: {
+                from: previousFeaturedStatus,
+                to: newFeaturedStatus
+              }
+            },
+            metadata: {
+              projectReference: project.projectReference
+            },
+            ipAddress: context.ipAddress ?? null,
+            userAgent: context.userAgent ?? null
+          }
+        ],
+        { session }
+      );
+
+      const populatedProject = await Project.findById(project._id)
+        .populate({
+          path: "categoryId",
+          select: "name slug"
+        })
+        .session(session);
+
+      if (!populatedProject) {
+        throw new ApiError(404, "Project not found.");
+      }
+
+      updatedProject = mapProjectDetail(
+        populatedProject.toObject() as ProjectWithPopulatedCategory
+      );
+    });
+
+    if (!updatedProject) {
+      throw new ApiError(
+        500,
+        "The project featured status update could not be completed."
+      );
+    }
+
+    return updatedProject;
+  } finally {
+    await session.endSession();
+  }
+}
+
 export async function getProjects(
   query: ListProjectsQuery
 ): Promise<ProjectListResponse> {
@@ -629,6 +1036,7 @@ export async function getProjects(
     search,
     source,
     status,
+    categoryId,
     clientId,
     serviceRequestId,
     quotationId,
@@ -651,11 +1059,15 @@ export async function getProjects(
     filter.status = status;
   }
 
-  if (clientId) {
-    filter.clientId = validateObjectId(
-      clientId,
-      "client ID"
+  if (categoryId) {
+    filter.categoryId = validateObjectId(
+      categoryId,
+      "project category ID"
     );
+  }
+
+  if (clientId) {
+    filter.clientId = validateObjectId(clientId, "client ID");
   }
 
   if (serviceRequestId) {
@@ -687,10 +1099,7 @@ export async function getProjects(
   }
 
   if (search) {
-    const searchPattern = new RegExp(
-      escapeRegExp(search),
-      "i"
-    );
+    const searchPattern = new RegExp(escapeRegExp(search), "i");
 
     filter.$or = [
       { projectReference: searchPattern },
@@ -700,19 +1109,18 @@ export async function getProjects(
   }
 
   const skip = (page - 1) * limit;
-
-  const sortDirection: 1 | -1 =
-    sortOrder === "asc" ? 1 : -1;
+  const sortDirection: 1 | -1 = sortOrder === "asc" ? 1 : -1;
 
   const sortOptions: Record<string, 1 | -1> = {
     [sortBy]: sortDirection
   };
 
-  const [
-    projects,
-    total
-  ] = await Promise.all([
+  const [projects, total] = await Promise.all([
     Project.find(filter)
+      .populate({
+        path: "categoryId",
+        select: "name slug"
+      })
       .sort(sortOptions)
       .skip(skip)
       .limit(limit)
@@ -726,10 +1134,9 @@ export async function getProjects(
   return {
     projects: projects.map((project) =>
       mapProjectListItem(
-        project as unknown as ProjectWithId
+        project as unknown as ProjectWithPopulatedCategory
       )
     ),
-
     pagination: {
       page,
       limit,
@@ -738,5 +1145,71 @@ export async function getProjects(
       hasNextPage: page < totalPages,
       hasPreviousPage: page > 1
     }
+  };
+}
+
+/**
+ * Retrieve completed projects selected for the public showcase.
+ *
+ * Only completed, featured and non-deleted projects with an
+ * active, non-deleted showcase category are returned.
+ *
+ * Private client information, financial details and
+ * administrative fields are excluded from the response.
+ */
+export async function getFeaturedPublicProjects():
+  Promise<PublicProjectListResponse> {
+  const activeCategories = await ProjectCategory.find({
+    isActive: true,
+    isDeleted: false
+  })
+    .select("_id")
+    .lean();
+
+  const activeCategoryIds = activeCategories.map(
+    (category) => category._id
+  );
+
+  if (activeCategoryIds.length === 0) {
+    return {
+      projects: []
+    };
+  }
+
+  const projects = await Project.find({
+    status: ProjectStatus.COMPLETED,
+    isFeatured: true,
+    isDeleted: false,
+    categoryId: {
+      $in: activeCategoryIds
+    }
+  })
+    .populate({
+      path: "categoryId",
+      match: {
+        isActive: true,
+        isDeleted: false
+      },
+      select: "name slug"
+    })
+    .select(
+      "_id title description serviceNames source completedAt coverImage videoClip categoryId"
+    )
+    .sort({
+      completedAt: -1,
+      createdAt: -1
+    })
+    .lean();
+
+  const visibleProjects = projects.filter(
+    (project) => Boolean(project.categoryId)
+  );
+
+  return {
+    projects: visibleProjects.map((project) =>
+      mapPublicProject(
+        project as unknown as ProjectWithPopulatedCategory
+      )
+    )
   };
 }

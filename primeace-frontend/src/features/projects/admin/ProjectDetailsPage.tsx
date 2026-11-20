@@ -1,4 +1,3 @@
-
 import {
   useCallback,
   useEffect,
@@ -13,7 +12,11 @@ import {
   BriefcaseBusiness,
   CalendarDays,
   CheckCircle2,
+  Eye,
+  EyeOff,
   FileText,
+  Globe,
+  Pencil,
   RefreshCw,
   UserRound
 } from "lucide-react";
@@ -27,6 +30,7 @@ import { ApiError } from "../../../lib/api.js";
 
 import {
   getProjectById,
+  updateProjectFeatured,
   updateProjectStatus
 } from "../services/project.service.js";
 
@@ -134,10 +138,13 @@ export default function ProjectDetailsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [updatingFeatured, setUpdatingFeatured] = useState(false);
 
   const [error, setError] = useState("");
   const [statusError, setStatusError] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
+  const [featuredError, setFeaturedError] = useState("");
+  const [featuredMessage, setFeaturedMessage] = useState("");
 
   const fetchProject = useCallback(
     async (showRefresh = false) => {
@@ -162,6 +169,8 @@ export default function ProjectDetailsPage() {
         setSelectedStatus(result.status);
         setStatusError("");
         setStatusMessage("");
+        setFeaturedError("");
+        setFeaturedMessage("");
       } catch (err) {
         setError(
           err instanceof ApiError
@@ -186,13 +195,16 @@ export default function ProjectDetailsPage() {
 
   const handleStatusUpdate = async () => {
     if (!project || !projectId) return;
-
     if (selectedStatus === project.status) return;
 
     try {
       setUpdatingStatus(true);
       setStatusError("");
       setStatusMessage("");
+      setFeaturedError("");
+      setFeaturedMessage("");
+
+      const wasFeatured = project.isFeatured;
 
       const updatedProject = await updateProjectStatus(
         projectId,
@@ -201,7 +213,12 @@ export default function ProjectDetailsPage() {
 
       setProject(updatedProject);
       setSelectedStatus(updatedProject.status);
-      setStatusMessage("Project status updated successfully.");
+
+      setStatusMessage(
+        wasFeatured && !updatedProject.isFeatured
+          ? "Project status updated successfully. It has also been removed from the public website."
+          : "Project status updated successfully."
+      );
     } catch (err) {
       setStatusError(
         err instanceof ApiError
@@ -210,6 +227,40 @@ export default function ProjectDetailsPage() {
       );
     } finally {
       setUpdatingStatus(false);
+    }
+  };
+
+  const handleFeaturedUpdate = async () => {
+    if (!project || !projectId) return;
+    if (project.status !== ProjectStatus.COMPLETED) return;
+
+    const nextFeaturedStatus = !project.isFeatured;
+
+    try {
+      setUpdatingFeatured(true);
+      setFeaturedError("");
+      setFeaturedMessage("");
+
+      const updatedProject = await updateProjectFeatured(
+        projectId,
+        nextFeaturedStatus
+      );
+
+      setProject(updatedProject);
+
+      setFeaturedMessage(
+        updatedProject.isFeatured
+          ? "Project is now featured on the public website."
+          : "Project has been removed from the public website."
+      );
+    } catch (err) {
+      setFeaturedError(
+        err instanceof ApiError
+          ? err.message
+          : "Unable to update website visibility. Please try again."
+      );
+    } finally {
+      setUpdatingFeatured(false);
     }
   };
 
@@ -268,6 +319,9 @@ export default function ProjectDetailsPage() {
   const isHistoricalProject =
     project.source === ProjectSource.HISTORICAL;
 
+  const isCompleted =
+    project.status === ProjectStatus.COMPLETED;
+
   return (
     <div className="space-y-6">
       <div>
@@ -280,6 +334,7 @@ export default function ProjectDetailsPage() {
         </Link>
       </div>
 
+      {/* Project heading and actions */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-3">
@@ -305,18 +360,28 @@ export default function ProjectDetailsPage() {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={handleRefresh}
-          disabled={refreshing || updatingStatus}
-          className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-300 px-3 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <RefreshCw
-            size={16}
-            className={refreshing ? "animate-spin" : ""}
-          />
-          Refresh
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            to={`/admin/projects/${project.id}/edit`}
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-700"
+          >
+            <Pencil size={16} />
+            Edit project
+          </Link>
+
+          <button
+            type="button"
+            onClick={handleRefresh}
+            disabled={refreshing || updatingStatus || updatingFeatured}
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-300 px-3 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <RefreshCw
+              size={16}
+              className={refreshing ? "animate-spin" : ""}
+            />
+            Refresh
+          </button>
+        </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -348,6 +413,11 @@ export default function ProjectDetailsPage() {
               />
 
               <DetailItem
+                label="Project category"
+                value={project.category?.name || "Unassigned"}
+              />
+
+              <DetailItem
                 label={isHistoricalProject ? "Project amount" : "Contract amount"}
                 value={formatCurrency(project.contractAmountKobo)}
               />
@@ -376,6 +446,74 @@ export default function ProjectDetailsPage() {
               <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-gray-700">
                 {project.description || "No project description provided."}
               </p>
+            </div>
+          </section>
+
+          {/* Project media */}
+          <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+            <div className="mb-5 flex items-center gap-2">
+              <Eye size={19} className="text-gray-500" />
+
+              <h2 className="font-semibold text-gray-900">
+                Project media
+              </h2>
+            </div>
+
+            <div className="space-y-6">
+              <div>
+                <p className="mb-3 text-xs font-medium uppercase tracking-wide text-gray-500">
+                  Cover image
+                </p>
+
+                {project.coverImage ? (
+                  <a
+                    href={project.coverImage.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="group block max-w-xl overflow-hidden rounded-lg border border-gray-200"
+                  >
+                    <img
+                      src={project.coverImage.url}
+                      alt={project.coverImage.alt || project.title}
+                      className="aspect-video w-full object-cover transition duration-300 group-hover:scale-[1.02]"
+                    />
+                  </a>
+                ) : (
+                  <p className="text-sm text-gray-500">
+                    No cover image has been added.
+                  </p>
+                )}
+              </div>
+
+              <div className="border-t border-gray-100 pt-5">
+                <p className="mb-3 text-xs font-medium uppercase tracking-wide text-gray-500">
+                  Video clip
+                </p>
+
+                {project.videoClip ? (
+                  <div className="max-w-xl space-y-3">
+                    <video
+                      controls
+                      preload="metadata"
+                      poster={project.videoClip.thumbnailUrl || undefined}
+                      className="aspect-video w-full rounded-lg bg-black"
+                    >
+                      <source src={project.videoClip.url} />
+                      Your browser does not support video playback.
+                    </video>
+
+                    {project.videoClip.alt && (
+                      <p className="text-sm text-gray-500">
+                        {project.videoClip.alt}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500">
+                    No video clip has been added.
+                  </p>
+                )}
+              </div>
             </div>
           </section>
 
@@ -461,6 +599,103 @@ export default function ProjectDetailsPage() {
         </div>
 
         <div className="space-y-6">
+          {/* Website showcase management */}
+          <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+            <div className="mb-5 flex items-center gap-2">
+              <Globe size={19} className="text-gray-500" />
+
+              <h2 className="font-semibold text-gray-900">
+                Website showcase
+              </h2>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  {project.isFeatured ? (
+                    <Eye size={17} className="text-green-600" />
+                  ) : (
+                    <EyeOff size={17} className="text-gray-400" />
+                  )}
+
+                  <span
+                    className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
+                      project.isFeatured
+                        ? "bg-green-100 text-green-700"
+                        : "bg-gray-100 text-gray-600"
+                    }`}
+                  >
+                    {project.isFeatured
+                      ? "Featured on website"
+                      : "Not featured"}
+                  </span>
+                </div>
+
+                <p className="mt-3 text-sm leading-6 text-gray-500">
+                  {project.isFeatured
+                    ? "This project is currently displayed on the public Projects page."
+                    : "This project is not currently displayed on the public Projects page."}
+                </p>
+              </div>
+
+              {!isCompleted && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                  <p className="text-sm leading-6 text-amber-800">
+                    Only completed projects can be featured on the public website.
+                  </p>
+                </div>
+              )}
+
+              {featuredError && (
+                <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                  <AlertCircle size={16} className="mt-0.5 shrink-0" />
+
+                  <p>{featuredError}</p>
+                </div>
+              )}
+
+              {featuredMessage && (
+                <div className="flex items-start gap-2 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-700">
+                  <CheckCircle2 size={16} className="mt-0.5 shrink-0" />
+
+                  <p>{featuredMessage}</p>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => void handleFeaturedUpdate()}
+                disabled={
+                  !isCompleted ||
+                  updatingFeatured ||
+                  updatingStatus
+                }
+                className={`inline-flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                  project.isFeatured
+                    ? "bg-gray-700 hover:bg-gray-800"
+                    : "bg-blue-600 hover:bg-blue-700"
+                }`}
+              >
+                {updatingFeatured ? (
+                  <>
+                    <RefreshCw size={16} className="animate-spin" />
+                    Updating website visibility...
+                  </>
+                ) : project.isFeatured ? (
+                  <>
+                    <EyeOff size={16} />
+                    Remove from website
+                  </>
+                ) : (
+                  <>
+                    <Eye size={16} />
+                    Feature on website
+                  </>
+                )}
+              </button>
+            </div>
+          </section>
+
           {/* Status management */}
           <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
             <div className="mb-5">
@@ -492,7 +727,7 @@ export default function ProjectDetailsPage() {
                     setStatusError("");
                     setStatusMessage("");
                   }}
-                  disabled={updatingStatus}
+                  disabled={updatingStatus || updatingFeatured}
                   className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-gray-50"
                 >
                   {projectStatuses.map((status) => (
@@ -524,6 +759,7 @@ export default function ProjectDetailsPage() {
                 onClick={() => void handleStatusUpdate()}
                 disabled={
                   updatingStatus ||
+                  updatingFeatured ||
                   selectedStatus === project.status
                 }
                 className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"

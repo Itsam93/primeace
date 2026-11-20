@@ -1,18 +1,23 @@
-import type { RequestHandler } from "express";
+import type { RequestHandler, Response } from "express";
 import { Types } from "mongoose";
 
 import { ApiError } from "../../shared/errors/ApiError.js";
 
 import {
   createHistoricalProject,
+  getFeaturedPublicProjects,
   getProjectById,
   getProjects,
+  updateProject,
+  updateProjectFeatured,
   updateProjectStatus
 } from "./project.service.js";
 
 import type {
   CreateHistoricalProjectInput,
   ListProjectsQuery,
+  UpdateProjectFeaturedInput,
+  UpdateProjectInput,
   UpdateProjectStatusInput
 } from "./project.validation.js";
 
@@ -27,7 +32,7 @@ interface AuthenticatedAdmin {
 }
 
 function getValidatedData(
-  response: Parameters<RequestHandler>[1]
+  response: Response
 ): ValidatedRequestData {
   const validated = response.locals.validated as
     | ValidatedRequestData
@@ -44,7 +49,7 @@ function getValidatedData(
 }
 
 function getAuthenticatedAdmin(
-  response: Parameters<RequestHandler>[1]
+  response: Response
 ): AuthenticatedAdmin {
   const admin = response.locals.admin as
     | AuthenticatedAdmin
@@ -59,6 +64,25 @@ function getAuthenticatedAdmin(
 
   return admin;
 }
+
+/**
+ * Retrieve completed projects selected for the public showcase.
+ *
+ * This handler is public and does not require administrator
+ * authentication.
+ */
+export const getFeaturedPublicProjectsHandler: RequestHandler = async (
+  _request,
+  response
+) => {
+  const result = await getFeaturedPublicProjects();
+
+  response.status(200).json({
+    success: true,
+    message: "Featured projects retrieved successfully.",
+    data: result
+  });
+};
 
 /**
  * Retrieve all projects with pagination and filtering.
@@ -95,7 +119,6 @@ export const getProject: RequestHandler = async (
   response
 ) => {
   const { params } = getValidatedData(response);
-
   const projectId = params?.projectId;
 
   if (!projectId) {
@@ -152,6 +175,52 @@ export const createHistoricalProjectHandler: RequestHandler = async (
 };
 
 /**
+ * Update editable information on an existing project.
+ *
+ * Supports both historical and contract-generated projects.
+ * Existing cover images and video clips are preserved.
+ */
+export const updateProjectHandler: RequestHandler = async (
+  request,
+  response
+) => {
+  const { params, body } = getValidatedData(response);
+  const projectId = params?.projectId;
+
+  if (!projectId) {
+    throw new ApiError(
+      400,
+      "Project ID is required."
+    );
+  }
+
+  if (!body) {
+    throw new ApiError(
+      400,
+      "Validated project update data is unavailable."
+    );
+  }
+
+  const admin = getAuthenticatedAdmin(response);
+
+  const project = await updateProject(
+    projectId,
+    body as UpdateProjectInput,
+    {
+      actorId: admin._id,
+      ipAddress: request.ip ?? null,
+      userAgent: request.get("user-agent") ?? null
+    }
+  );
+
+  response.status(200).json({
+    success: true,
+    message: "Project updated successfully.",
+    data: project
+  });
+};
+
+/**
  * Update a project's status.
  */
 export const updateProjectStatusHandler: RequestHandler = async (
@@ -159,7 +228,6 @@ export const updateProjectStatusHandler: RequestHandler = async (
   response
 ) => {
   const { params, body } = getValidatedData(response);
-
   const projectId = params?.projectId;
 
   if (!projectId) {
@@ -191,6 +259,51 @@ export const updateProjectStatusHandler: RequestHandler = async (
   response.status(200).json({
     success: true,
     message: "Project status updated successfully.",
+    data: project
+  });
+};
+
+/**
+ * Feature or unfeature a completed project for the public showcase.
+ */
+export const updateProjectFeaturedHandler: RequestHandler = async (
+  request,
+  response
+) => {
+  const { params, body } = getValidatedData(response);
+  const projectId = params?.projectId;
+
+  if (!projectId) {
+    throw new ApiError(
+      400,
+      "Project ID is required."
+    );
+  }
+
+  if (!body) {
+    throw new ApiError(
+      400,
+      "Validated project featured status is unavailable."
+    );
+  }
+
+  const admin = getAuthenticatedAdmin(response);
+
+  const project = await updateProjectFeatured(
+    projectId,
+    body as UpdateProjectFeaturedInput,
+    {
+      actorId: admin._id,
+      ipAddress: request.ip ?? null,
+      userAgent: request.get("user-agent") ?? null
+    }
+  );
+
+  response.status(200).json({
+    success: true,
+    message: project.isFeatured
+      ? "Project added to the public showcase successfully."
+      : "Project removed from the public showcase successfully.",
     data: project
   });
 };

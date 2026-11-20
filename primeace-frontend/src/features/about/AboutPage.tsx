@@ -72,8 +72,7 @@ function AboutPage() {
           <div className="mx-auto w-full max-w-7xl">
             <div className="max-w-4xl">
               <div className="mb-8 flex items-center gap-4">
-                <span className="h-px w-10 bg-blue-400" />
-
+           
                 <p className="text-xs font-semibold uppercase tracking-[0.24em] text-blue-300">
                   About PrimeAce
                 </p>
@@ -113,8 +112,7 @@ function AboutPage() {
             <div className="grid gap-12 lg:grid-cols-[0.85fr_1.15fr] lg:gap-24">
               <div>
                 <div className="mb-7 flex items-center gap-3">
-                  <span className="h-px w-8 bg-[#1556D6]" />
-
+                  
                   <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#1556D6]">
                     Who We Are
                   </p>
@@ -194,8 +192,7 @@ function AboutPage() {
             <div className="grid gap-10 lg:grid-cols-[0.8fr_1.2fr] lg:gap-24">
               <div>
                 <div className="mb-7 flex items-center gap-3">
-                  <span className="h-px w-8 bg-[#1556D6]" />
-
+                  
                   <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#1556D6]">
                     What Guides Us
                   </p>

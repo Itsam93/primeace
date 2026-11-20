@@ -34,8 +34,16 @@ import {
 import type { IClient } from "../../clients/types/client.types.js";
 
 import {
+  getProjectCategories
+} from "../services/project-category.service.js";
+
+import {
   createHistoricalProject
 } from "../services/project.service.js";
+
+import type {
+  ProjectCategoryListItem
+} from "../types/project.types.js";
 
 const CLIENT_PAGE_SIZE = 10;
 
@@ -72,6 +80,11 @@ export default function CreateHistoricalProjectPage() {
   const [creatingClient, setCreatingClient] = useState(false);
   const [createClientError, setCreateClientError] = useState("");
 
+  const [categories, setCategories] = useState<ProjectCategoryListItem[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
+  const [categoriesError, setCategoriesError] = useState("");
+  const [categoryId, setCategoryId] = useState("");
+
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [serviceNames, setServiceNames] = useState<string[]>([""]);
@@ -85,6 +98,47 @@ export default function CreateHistoricalProjectPage() {
 
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCategories() {
+      try {
+        setCategoriesLoading(true);
+        setCategoriesError("");
+
+        const result = await getProjectCategories({
+          page: 1,
+          limit: 100,
+          isActive: true,
+          sortBy: "sortOrder",
+          sortOrder: "asc"
+        });
+
+        if (!cancelled) {
+          setCategories(result.categories);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setCategoriesError(
+            err instanceof ApiError
+              ? err.message
+              : "Unable to load project categories. Please try again."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setCategoriesLoading(false);
+        }
+      }
+    }
+
+    void loadCategories();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (selectedClient || showCreateClientForm) {
@@ -159,10 +213,7 @@ export default function CreateHistoricalProjectPage() {
     setCreateClientError("");
   };
 
-  const handleCreateClient = async (
-    event: FormEvent<HTMLFormElement>
-  ) => {
-    event.preventDefault();
+  const handleCreateClient = async () => {
     setCreateClientError("");
 
     if (newClientFullName.trim().length < 2) {
@@ -239,6 +290,11 @@ export default function CreateHistoricalProjectPage() {
       return;
     }
 
+    if (!categoryId) {
+      setFormError("Please select a project category.");
+      return;
+    }
+
     const cleanedServices = serviceNames
       .map((service) => service.trim())
       .filter(Boolean);
@@ -305,6 +361,7 @@ export default function CreateHistoricalProjectPage() {
         clientId: selectedClient._id,
         title: title.trim(),
         description: description.trim(),
+        categoryId,
         serviceNames: cleanedServices,
         contractAmountKobo,
         startDate: startDate ? toDateTime(startDate) : null,
@@ -358,7 +415,7 @@ export default function CreateHistoricalProjectPage() {
         onSubmit={handleSubmit}
         className="space-y-6"
       >
-        {/* Client */}
+        {/* Client information */}
         <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
           <div className="mb-5">
             <h2 className="font-semibold text-gray-900">
@@ -589,15 +646,7 @@ export default function CreateHistoricalProjectPage() {
 
                 <button
                   type="button"
-                  onClick={() => {
-                    const form = document.getElementById(
-                      "newClientFullName"
-                    ) as HTMLInputElement | null;
-
-                    if (form?.form) {
-                      form.form.requestSubmit();
-                    }
-                  }}
+                  onClick={() => void handleCreateClient()}
                   disabled={creatingClient}
                   className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
                 >
@@ -605,16 +654,11 @@ export default function CreateHistoricalProjectPage() {
                     <RefreshCw size={16} className="animate-spin" />
                   )}
 
-                  {creatingClient ? "Creating client..." : "Create and select client"}
+                  {creatingClient
+                    ? "Creating client..."
+                    : "Create and select client"}
                 </button>
               </div>
-
-              {/* This form is deliberately separate from the project form. */}
-              <form
-                id="newClientForm"
-                onSubmit={handleCreateClient}
-                className="hidden"
-              />
             </div>
           )}
 
@@ -723,6 +767,93 @@ export default function CreateHistoricalProjectPage() {
             <p className="mt-1 text-right text-xs text-gray-400">
               {description.length}/5000
             </p>
+          </div>
+
+          <div>
+            <label
+              htmlFor="projectCategory"
+              className="mb-2 block text-sm font-medium text-gray-700"
+            >
+              Project category <span className="text-red-500">*</span>
+            </label>
+
+            {categoriesLoading ? (
+              <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-500">
+                <RefreshCw size={16} className="animate-spin" />
+                Loading project categories...
+              </div>
+            ) : categoriesError ? (
+              <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+                <p className="text-sm text-red-700">
+                  {categoriesError}
+                </p>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCategoriesError("");
+                    setCategoriesLoading(true);
+
+                    void getProjectCategories({
+                      page: 1,
+                      limit: 100,
+                      isActive: true,
+                      sortBy: "sortOrder",
+                      sortOrder: "asc"
+                    })
+                      .then((result) => {
+                        setCategories(result.categories);
+                      })
+                      .catch((err: unknown) => {
+                        setCategoriesError(
+                          err instanceof ApiError
+                            ? err.message
+                            : "Unable to load project categories. Please try again."
+                        );
+                      })
+                      .finally(() => {
+                        setCategoriesLoading(false);
+                      });
+                  }}
+                  className="mt-2 text-sm font-medium text-red-700 underline underline-offset-2 hover:text-red-800"
+                >
+                  Try again
+                </button>
+              </div>
+            ) : categories.length === 0 ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                <p className="text-sm text-amber-800">
+                  No active project categories are available. Create and activate a project category before adding a historical project.
+                </p>
+              </div>
+            ) : (
+              <>
+                <select
+                  id="projectCategory"
+                  value={categoryId}
+                  onChange={(event) => setCategoryId(event.target.value)}
+                  required
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                >
+                  <option value="">
+                    Select a project category
+                  </option>
+
+                  {categories.map((category) => (
+                    <option
+                      key={category.id}
+                      value={category.id}
+                    >
+                      {category.name}
+                    </option>
+                  ))}
+                </select>
+
+                <p className="mt-1 text-xs text-gray-500">
+                  Choose the category under which this project should appear in the public portfolio.
+                </p>
+              </>
+            )}
           </div>
 
           <div>
@@ -912,14 +1043,22 @@ export default function CreateHistoricalProjectPage() {
 
           <button
             type="submit"
-            disabled={submitting || creatingClient || showCreateClientForm}
+            disabled={
+              submitting ||
+              creatingClient ||
+              showCreateClientForm ||
+              categoriesLoading ||
+              categories.length === 0
+            }
             className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {submitting && (
               <RefreshCw size={16} className="animate-spin" />
             )}
 
-            {submitting ? "Creating project..." : "Create historical project"}
+            {submitting
+              ? "Creating project..."
+              : "Create historical project"}
           </button>
         </div>
       </form>

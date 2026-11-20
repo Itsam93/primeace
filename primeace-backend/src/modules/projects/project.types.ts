@@ -9,17 +9,52 @@ export interface ProjectClientSnapshot {
   phone: string;
 }
 
+export interface ProjectCategorySummary {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+export interface ProjectCoverImage {
+  url: string;
+  alt: string;
+}
+
+export interface ProjectVideoClip {
+  url: string;
+  thumbnailUrl: string;
+  alt: string;
+}
+
 export interface ProjectListItem {
   id: string;
   projectReference: string;
+
   source: ProjectSource;
+
   clientSnapshot: ProjectClientSnapshot;
+
   serviceNames: string[];
+
   title: string;
+  description: string;
+
+  categoryId: string | null;
+  category: ProjectCategorySummary | null;
+
   contractAmountKobo: number | null;
+
   status: ProjectStatus;
+
   startDate: string | null;
   expectedCompletionDate: string | null;
+  completedAt: string | null;
+
+  coverImage: ProjectCoverImage | null;
+  videoClip: ProjectVideoClip | null;
+
+  isFeatured: boolean;
+
   createdAt: string;
   updatedAt: string;
 }
@@ -29,8 +64,6 @@ export interface ProjectDetail extends ProjectListItem {
   serviceRequestId: string | null;
   quotationId: string | null;
   contractId: string | null;
-  description: string;
-  completedAt: string | null;
 }
 
 export interface ProjectPagination {
@@ -45,4 +78,29 @@ export interface ProjectPagination {
 export interface ProjectListResponse {
   projects: ProjectListItem[];
   pagination: ProjectPagination;
+}
+
+/**
+ * Project information exposed on the public website.
+ *
+ * Excludes client information, financial details,
+ * internal references and administrative fields.
+ */
+export interface PublicProject {
+  id: string;
+  title: string;
+  description: string;
+  serviceNames: string[];
+
+  category: ProjectCategorySummary | null;
+
+  source: ProjectSource;
+  completedAt: string | null;
+
+  coverImage: ProjectCoverImage | null;
+  videoClip: ProjectVideoClip | null;
+}
+
+export interface PublicProjectListResponse {
+  projects: PublicProject[];
 }

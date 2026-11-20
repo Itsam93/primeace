@@ -3,8 +3,10 @@ import { apiRequest } from "../../../lib/api.js";
 import type {
   ICreateHistoricalProjectPayload,
   IListProjectsQuery,
+  IUpdateProjectPayload,
   ProjectDetail,
-  ProjectListResponse
+  ProjectListResponse,
+  PublicProjectListResponse
 } from "../types/project.types.js";
 
 const PROJECTS_ENDPOINT = "/projects";
@@ -57,6 +59,19 @@ export async function createHistoricalProject(
   );
 }
 
+export async function updateProject(
+  projectId: string,
+  projectData: IUpdateProjectPayload
+): Promise<ProjectDetail> {
+  return apiRequest<ProjectDetail>(
+    `${PROJECTS_ENDPOINT}/${projectId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(projectData)
+    }
+  );
+}
+
 export async function updateProjectStatus(
   projectId: string,
   status: ProjectDetail["status"]
@@ -67,5 +82,24 @@ export async function updateProjectStatus(
       method: "PATCH",
       body: JSON.stringify({ status })
     }
+  );
+}
+
+export async function updateProjectFeatured(
+  projectId: string,
+  isFeatured: boolean
+): Promise<ProjectDetail> {
+  return apiRequest<ProjectDetail>(
+    `${PROJECTS_ENDPOINT}/${projectId}/featured`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ isFeatured })
+    }
+  );
+}
+
+export async function getFeaturedPublicProjects(): Promise<PublicProjectListResponse> {
+  return apiRequest<PublicProjectListResponse>(
+    `${PROJECTS_ENDPOINT}/featured`
   );
 }

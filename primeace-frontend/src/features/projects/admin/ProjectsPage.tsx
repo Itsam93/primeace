@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useRef,
   useState
 } from "react";
 
@@ -87,6 +88,7 @@ function formatDate(value: string | null): string {
 
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -99,8 +101,12 @@ export default function ProjectsPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
 
+  const requestIdRef = useRef(0);
+
   const fetchProjects = useCallback(
     async (showRefresh = false) => {
+      const requestId = ++requestIdRef.current;
+
       try {
         if (showRefresh) {
           setRefreshing(true);
@@ -131,18 +137,24 @@ export default function ProjectsPage() {
 
         const result = await getProjects(query);
 
+        if (requestId !== requestIdRef.current) return;
+
         setProjects(result.projects);
         setTotalPages(Math.max(result.pagination.totalPages, 1));
         setTotal(result.pagination.total);
       } catch (err) {
+        if (requestId !== requestIdRef.current) return;
+
         setError(
           err instanceof ApiError
             ? err.message
             : "Unable to load projects. Please try again."
         );
       } finally {
-        setLoading(false);
-        setRefreshing(false);
+        if (requestId === requestIdRef.current) {
+          setLoading(false);
+          setRefreshing(false);
+        }
       }
     },
     [page, search, status, source]
@@ -153,7 +165,9 @@ export default function ProjectsPage() {
       void fetchProjects();
     }, 300);
 
-    return () => window.clearTimeout(timeout);
+    return () => {
+      window.clearTimeout(timeout);
+    };
   }, [fetchProjects]);
 
   const handleSearchChange = (
@@ -181,8 +195,13 @@ export default function ProjectsPage() {
     void fetchProjects(true);
   };
 
+  const hasActiveFilters = Boolean(
+    search.trim() || status || source
+  );
+
   return (
     <div className="space-y-6">
+      {/* Page heading */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-gray-900">
@@ -203,6 +222,7 @@ export default function ProjectsPage() {
         </Link>
       </div>
 
+      {/* Search and filters */}
       <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <div className="relative flex-1">
@@ -223,6 +243,7 @@ export default function ProjectsPage() {
           <select
             value={source}
             onChange={handleSourceChange}
+            aria-label="Filter by project source"
             className="rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
           >
             <option value="">All project sources</option>
@@ -237,6 +258,7 @@ export default function ProjectsPage() {
           <select
             value={status}
             onChange={handleStatusChange}
+            aria-label="Filter by project status"
             className="rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
           >
             <option value="">All statuses</option>
@@ -263,6 +285,7 @@ export default function ProjectsPage() {
         </div>
       </div>
 
+      {/* Error message */}
       {error && (
         <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           <AlertCircle size={18} className="mt-0.5 shrink-0" />
@@ -277,6 +300,7 @@ export default function ProjectsPage() {
         </div>
       )}
 
+      {/* Projects table */}
       <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
         <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
           <h2 className="font-semibold text-gray-900">
@@ -304,12 +328,12 @@ export default function ProjectsPage() {
             </h3>
 
             <p className="mt-1 max-w-sm text-sm text-gray-500">
-              {search || status || source
+              {hasActiveFilters
                 ? "Try changing your search or filters."
                 : "Projects created from accepted contracts and historical projects will appear here."}
             </p>
 
-            {!search && !status && !source && (
+            {!hasActiveFilters && (
               <Link
                 to="/admin/projects/new"
                 className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-blue-700 hover:text-blue-800"
@@ -322,30 +346,41 @@ export default function ProjectsPage() {
         ) : (
           <>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1050px] text-left text-sm">
+              <table className="w-full min-w-[1150px] text-left text-sm">
                 <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
                   <tr>
                     <th className="px-5 py-3 font-medium">
                       Project
                     </th>
+
                     <th className="px-5 py-3 font-medium">
                       Source
                     </th>
+
                     <th className="px-5 py-3 font-medium">
                       Client
                     </th>
+
+                    <th className="px-5 py-3 font-medium">
+                      Category
+                    </th>
+
                     <th className="px-5 py-3 font-medium">
                       Services
                     </th>
+
                     <th className="px-5 py-3 font-medium">
                       Amount
                     </th>
+
                     <th className="px-5 py-3 font-medium">
                       Status
                     </th>
+
                     <th className="px-5 py-3 font-medium">
                       Expected completion
                     </th>
+
                     <th className="px-5 py-3 font-medium text-right">
                       Action
                     </th>
@@ -390,11 +425,23 @@ export default function ProjectsPage() {
                       </td>
 
                       <td className="px-5 py-4">
+                        {project.category ? (
+                          <span className="inline-flex rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1.5 text-xs font-medium text-gray-700">
+                            {project.category.name}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-gray-400">
+                            Unassigned
+                          </span>
+                        )}
+                      </td>
+
+                      <td className="px-5 py-4">
                         <div className="flex max-w-xs flex-wrap gap-1.5">
                           {project.serviceNames.length > 0 ? (
-                            project.serviceNames.map((service) => (
+                            project.serviceNames.map((service, index) => (
                               <span
-                                key={service}
+                                key={`${service}-${index}`}
                                 className="rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-600"
                               >
                                 {service}
@@ -436,6 +483,7 @@ export default function ProjectsPage() {
               </table>
             </div>
 
+            {/* Pagination */}
             <div className="flex flex-col gap-3 border-t border-gray-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-sm text-gray-500">
                 Page {page} of {totalPages}
@@ -444,8 +492,10 @@ export default function ProjectsPage() {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setPage((current) => Math.max(1, current - 1))}
-                  disabled={page <= 1}
+                  onClick={() => {
+                    setPage((current) => Math.max(1, current - 1));
+                  }}
+                  disabled={page <= 1 || loading}
                   className="inline-flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <ChevronLeft size={16} />
@@ -454,8 +504,10 @@ export default function ProjectsPage() {
 
                 <button
                   type="button"
-                  onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
-                  disabled={page >= totalPages}
+                  onClick={() => {
+                    setPage((current) => Math.min(totalPages, current + 1));
+                  }}
+                  disabled={page >= totalPages || loading}
                   className="inline-flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   Next

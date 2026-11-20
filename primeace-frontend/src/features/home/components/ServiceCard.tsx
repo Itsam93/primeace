@@ -8,53 +8,60 @@ function ServiceCard({ service }: ServiceCardProps) {
   const Icon = service.icon;
 
   return (
-    <article
-      className="group relative flex min-h-[460px] flex-col justify-between overflow-hidden border border-white/15 bg-[#07152F] bg-cover bg-center bg-no-repeat p-7 text-white sm:min-h-[480px] sm:p-10 lg:p-14"
-      style={{
-        backgroundImage: `url("${service.backgroundImage}")`
-      }}
-    >
-      {/* Dark overlay */}
-      <div className="absolute inset-0 bg-gradient-to-r from-[#07152F]/90 via-[#07152F]/75 to-[#07152F]/40" />
-
-      {/* Service header */}
-      <div className="relative z-10 flex items-center justify-between">
-        <div className="flex h-14 w-14 items-center justify-center border border-white/20 bg-white/10 text-white transition-colors duration-300 group-hover:bg-[#1556D6]">
-          <Icon size={27} strokeWidth={1.8} />
+    <article className="group flex h-full min-h-[390px] flex-col border border-white/15 bg-[#0B1D3B] p-7 transition-colors duration-200 hover:border-blue-400/60 sm:p-8">
+      {/* Card header */}
+      <div className="flex items-center justify-between">
+        <div className="flex h-12 w-12 items-center justify-center border border-blue-400/30 bg-blue-400/10 text-blue-300">
+          <Icon size={23} strokeWidth={1.7} />
         </div>
 
-        <span className="text-sm font-semibold tracking-wider text-white/60">
+        <span className="text-sm font-medium tracking-widest text-slate-500">
           {service.number}
         </span>
       </div>
 
       {/* Service information */}
-      <div className="relative z-10 mt-16 max-w-2xl">
-        <h3 className="text-3xl font-bold leading-tight tracking-tight text-white sm:text-4xl lg:text-5xl">
+      <div className="mt-9">
+        <h3 className="max-w-md text-2xl font-semibold leading-snug tracking-tight text-white">
           {service.title}
         </h3>
 
-        <p className="mt-5 max-w-xl text-sm leading-8 text-slate-200 sm:text-base">
+        <p className="mt-4 text-sm leading-7 text-slate-400">
           {service.description}
         </p>
+      </div>
 
-        <div className="mt-7 flex flex-wrap gap-2">
+      {/* Offerings */}
+      <div className="mt-7 border-t border-white/10 pt-6">
+        <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.16em] text-blue-300">
+          Areas of service
+        </p>
+
+        <ul className="flex flex-wrap gap-2">
           {service.offerings.map((offering) => (
-            <span
+            <li
               key={offering}
-              className="border border-white/20 bg-white/10 px-3 py-2 text-xs font-medium text-white/90"
+              className="border border-white/10 px-3 py-2 text-xs leading-4 text-slate-300"
             >
               {offering}
-            </span>
+            </li>
           ))}
-        </div>
+        </ul>
+      </div>
 
+      {/* Card footer */}
+      <div className="mt-auto pt-8">
         <a
           href="#contact"
-          className="mt-9 inline-flex w-fit items-center gap-3 border-b border-blue-400 pb-2 text-sm font-semibold text-white transition-colors hover:text-blue-300"
+          className="inline-flex items-center gap-3 text-sm font-semibold text-white transition-colors hover:text-blue-400"
         >
           Discuss this service
-          <span aria-hidden="true">→</span>
+          <span
+            aria-hidden="true"
+            className="text-blue-400"
+          >
+            →
+          </span>
         </a>
       </div>
     </article>

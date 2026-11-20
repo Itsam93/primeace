@@ -11,6 +11,19 @@ import {
 
 import { softDeleteFields } from "../../database/softDelete.js";
 
+export interface ProjectMedia {
+  url: string;
+  publicId: string;
+  alt: string;
+}
+
+export interface ProjectVideoClip {
+  url: string;
+  publicId: string;
+  thumbnailUrl: string;
+  alt: string;
+}
+
 export interface ProjectRecord {
   projectReference: string;
 
@@ -33,6 +46,11 @@ export interface ProjectRecord {
   title: string;
   description: string;
 
+  categoryId: Types.ObjectId | null;
+
+  coverImage: ProjectMedia | null;
+  videoClip: ProjectVideoClip | null;
+
   contractAmountKobo: number | null;
 
   status: ProjectStatus;
@@ -41,6 +59,8 @@ export interface ProjectRecord {
   expectedCompletionDate: Date | null;
   completedAt: Date | null;
 
+  isFeatured: boolean;
+
   isDeleted: boolean;
   deletedAt: Date | null;
   deletedBy: Types.ObjectId | null;
@@ -48,6 +68,62 @@ export interface ProjectRecord {
   createdAt: Date;
   updatedAt: Date;
 }
+
+const projectCoverImageSchema = new Schema<ProjectMedia>(
+  {
+    url: {
+      type: String,
+      required: true,
+      trim: true
+    },
+
+    publicId: {
+      type: String,
+      required: true,
+      trim: true
+    },
+
+    alt: {
+      type: String,
+      required: true,
+      trim: true
+    }
+  },
+  {
+    _id: false
+  }
+);
+
+const projectVideoClipSchema = new Schema<ProjectVideoClip>(
+  {
+    url: {
+      type: String,
+      required: true,
+      trim: true
+    },
+
+    publicId: {
+      type: String,
+      required: true,
+      trim: true
+    },
+
+    thumbnailUrl: {
+      type: String,
+      required: true,
+      trim: true
+    },
+
+    alt: {
+      type: String,
+      required: true,
+      trim: true
+    }
+  },
+  {
+    _id: false
+  }
+);
 
 const projectSchema = new Schema<ProjectRecord>(
   {
@@ -129,6 +205,23 @@ const projectSchema = new Schema<ProjectRecord>(
       trim: true
     },
 
+    categoryId: {
+      type: Schema.Types.ObjectId,
+      ref: "ProjectCategory",
+      default: null,
+      index: true
+    },
+
+    coverImage: {
+      type: projectCoverImageSchema,
+      default: null
+    },
+
+    videoClip: {
+      type: projectVideoClipSchema,
+      default: null
+    },
+
     contractAmountKobo: {
       type: Number,
       default: null,
@@ -156,6 +249,12 @@ const projectSchema = new Schema<ProjectRecord>(
     completedAt: {
       type: Date,
       default: null
+    },
+
+    isFeatured: {
+      type: Boolean,
+      default: false,
+      index: true
     },
 
     ...softDeleteFields
@@ -186,6 +285,32 @@ projectSchema.index({
 projectSchema.index({
   status: 1,
   expectedCompletionDate: 1
+});
+
+// Supports public featured-project queries.
+projectSchema.index(
+  {
+    status: 1,
+    isFeatured: 1,
+    isDeleted: 1,
+    completedAt: -1
+  },
+  {
+    partialFilterExpression: {
+      status: ProjectStatus.COMPLETED,
+      isFeatured: true,
+      isDeleted: false
+    }
+  }
+);
+
+// Supports filtering projects by showcase category.
+projectSchema.index({
+  categoryId: 1,
+  status: 1,
+  isFeatured: 1,
+  isDeleted: 1,
+  completedAt: -1
 });
 
 export const Project = model<ProjectRecord>(
